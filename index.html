@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Face Activated Phone Screen</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: black;
+      overflow: hidden;
+      touch-action: manipulation;
+      font-family: Arial, sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      background: black;
+      overflow: hidden;
+    }
+
+    #mainVideo {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: black;
+    }
+
+    /*
+      黑屏遮罩：
+      检测不到人脸时显示；
+      检测到人脸时隐藏。
+    */
+    #blackout {
+      position: absolute;
+      inset: 0;
+      background: black;
+      z-index: 10;
+      opacity: 1;
+      transition: opacity 0.25s linear;
+      pointer-events: none;
+    }
+
+    #blackout.hide {
+      opacity: 0;
+    }
+
+    /*
+      摄像头画面默认隐藏。
+      调试时可以把 opacity 改成 0.4。
+    */
+    #cameraPreview {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      width: 120px;
+      height: 160px;
+      object-fit: cover;
+      z-index: 20;
+      opacity: 0;
+      transform: scaleX(-1);
+      pointer-events: none;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+
+    #startLayer {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: black;
+      color: white;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    #startButton {
+      border: 1px solid white;
+      background: transparent;
+      color: white;
+      font-size: 18px;
+      padding: 14px 24px;
+      border-radius: 999px;
+    }
+
+    #status {
+      position: absolute;
+      left: 10px;
+      top: 10px;
+      z-index: 40;
+      color: #00ff88;
+      font-size: 12px;
+      line-height: 1.4;
+      opacity: 0.75;
+      pointer-events: none;
+      display: none;
+    }
+
+    body.debug #status {
+      display: block;
+    }
+
+    body.debug #cameraPreview {
+      opacity: 0.45;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <video
+      id="mainVideo"
+      playsinline
+      webkit-playsinline
+      muted
+      loop
+      preload="auto"
+    ></video>
+
+    <div id="blackout"></div>
+
+    <video
+      id="cameraPreview"
+      autoplay
+      muted
+      playsinline
+      webkit-playsinline
+    ></video>
+
+    <div id="status">loading...</div>
+
+    <div id="startLayer">
+      <button id="startButton">点击启动</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      FaceDetector,
+      FilesetResolver
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+    /*
+      =========================
+      可调参数
+      =========================
+    */
+
+    // 检测间隔。越小越灵敏，但越耗电。
+    const DETECT_INTERVAL_MS = 180;
+
+    // 检测到人脸后，至少持续多少毫秒才点亮，防止路过误触发。
+    const FACE_ON_DELAY_MS = 300;
+
+    // 检测不到人脸后，延迟多少毫秒黑屏，防止画面闪烁。
+    const FACE_OFF_DELAY_MS = 1200;
+
+    // 人脸置信度阈值，0 到 1。
+    const MIN_SCORE = 0.55;
+
+    // 人脸面积占摄像头画面的最小比例。
+    // 太小说明人太远，忽略。
+    const MIN_FACE_AREA_RATIO = 0.035;
+
+    // 人脸中心需要落在画面中间区域。
+    // 数值越大，允许范围越大。
+    const CENTER_TOLERANCE_X = 0.38;
+    const CENTER_TOLERANCE_Y = 0.42;
+
+    // 是否调试模式：URL 后面加 &debug=1 可打开。
+    const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+    if (DEBUG) {
+      document.body.classList.add("debug");
+    }
+
+    /*
+      =========================
+      DOM
+      =========================
+    */
+
+    const mainVideo = document.getElementById("mainVideo");
+    const cameraPreview = document.getElementById("cameraPreview");
+    const blackout = document.getElementById("blackout");
+    const startLayer = document.getElementById("startLayer");
+    const startButton = document.getElementById("startButton");
+    const statusEl = document.getElementById("status");
+
+    /*
+      =========================
+      根据 screen 参数选择视频
+      =========================
+    */
+
+    const params = new URLSearchParams(location.search);
+    const screenId = params.get("screen") || "1";
+
+    // 默认视频路径：videos/1.mp4、videos/2.mp4 ...
+    // 也可以通过 video 参数直接指定：
+    // index.html?video=videos/test.mp4
+    const videoSrc = params.get("video") || `videos/${screenId}.mp4`;
+
+    mainVideo.src = videoSrc;
+
+    /*
+      =========================
+      状态变量
+      =========================
+    */
+
+    let faceDetector = null;
+    let cameraReady = false;
+    let isScreenOn = false;
+
+    let firstFaceSeenAt = 0;
+    let lastFaceSeenAt = 0;
+    let lastDetectAt = 0;
+
+    /*
+      =========================
+      启动
+      =========================
+    */
+
+    startButton.addEventListener("click", async () => {
+      startButton.disabled = true;
+      startButton.innerText = "启动中...";
+
+      try {
+        await startVideo();
+        await startCamera();
+        await loadFaceDetector();
+
+        startLayer.style.display = "none";
+
+        // 视频默认一直播放，只是用黑色遮罩盖住。
+        await safePlay(mainVideo);
+
+        detectLoop();
+      } catch (error) {
+        console.error(error);
+        startButton.disabled = false;
+        startButton.innerText = "启动失败，点我重试";
+        statusEl.innerText = String(error.message || error);
+        statusEl.style.display = "block";
+      }
+    });
+
+    async function startVideo() {
+      mainVideo.muted = true;
+      mainVideo.loop = true;
+      mainVideo.playsInline = true;
+
+      // 有些手机需要用户手势后才能播放，所以放在按钮点击后执行。
+      await safePlay(mainVideo);
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("当前浏览器不支持摄像头调用。请使用 Safari / Chrome，并确保页面是 HTTPS。");
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: "user",
+          width: { ideal: 320 },
+          height: { ideal: 240 },
+          frameRate: { ideal: 12, max: 15 }
+        }
+      });
+
+      cameraPreview.srcObject = stream;
+
+      await new Promise((resolve) => {
+        cameraPreview.onloadedmetadata = () => {
+          cameraReady = true;
+          resolve();
+        };
+      });
+
+      await safePlay(cameraPreview);
+    }
+
+    async function loadFaceDetector() {
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      );
+
+      faceDetector = await FaceDetector.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
+        },
+        runningMode: "VIDEO",
+        minDetectionConfidence: MIN_SCORE,
+        minSuppressionThreshold: 0.3
+      });
+    }
+
+    /*
+      =========================
+      人脸检测循环
+      =========================
+    */
+
+    function detectLoop() {
+      const now = performance.now();
+
+      if (
+        faceDetector &&
+        cameraReady &&
+        cameraPreview.readyState >= 2 &&
+        now - lastDetectAt >= DETECT_INTERVAL_MS
+      ) {
+        lastDetectAt = now;
+
+        const result = faceDetector.detectForVideo(cameraPreview, now);
+        const hasValidFace = checkHasValidFace(result);
+
+        updateScreenState(hasValidFace, now);
+        updateDebug(hasValidFace, result);
+      }
+
+      requestAnimationFrame(detectLoop);
+    }
+
+    function checkHasValidFace(result) {
+      if (!result || !result.detections || result.detections.length === 0) {
+        return false;
+      }
+
+      const videoWidth = cameraPreview.videoWidth || 320;
+      const videoHeight = cameraPreview.videoHeight || 240;
+      const frameArea = videoWidth * videoHeight;
+
+      for (const detection of result.detections) {
+        const score = detection.categories?.[0]?.score ?? 0;
+        if (score < MIN_SCORE) continue;
+
+        const box = detection.boundingBox;
+        if (!box) continue;
+
+        const faceArea = box.width * box.height;
+        const areaRatio = faceArea / frameArea;
+
+        if (areaRatio < MIN_FACE_AREA_RATIO) continue;
+
+        const centerX = box.originX + box.width / 2;
+        const centerY = box.originY + box.height / 2;
+
+        const normalizedX = centerX / videoWidth;
+        const normalizedY = centerY / videoHeight;
+
+        const isCenteredX = Math.abs(normalizedX - 0.5) <= CENTER_TOLERANCE_X;
+        const isCenteredY = Math.abs(normalizedY - 0.5) <= CENTER_TOLERANCE_Y;
+
+        if (!isCenteredX || !isCenteredY) continue;
+
+        return true;
+      }
+
+      return false;
+    }
+
+    function updateScreenState(hasValidFace, now) {
+      if (hasValidFace) {
+        lastFaceSeenAt = now;
+
+        if (firstFaceSeenAt === 0) {
+          firstFaceSeenAt = now;
+        }
+
+        if (!isScreenOn && now - firstFaceSeenAt >= FACE_ON_DELAY_MS) {
+          turnScreenOn();
+        }
+      } else {
+        firstFaceSeenAt = 0;
+
+        if (isScreenOn && now - lastFaceSeenAt >= FACE_OFF_DELAY_MS) {
+          turnScreenOff();
+        }
+      }
+    }
+
+    function turnScreenOn() {
+      isScreenOn = true;
+      blackout.classList.add("hide");
+
+      // 视频一直在播；这里再 play 一次是为了防止部分浏览器自动暂停。
+      safePlay(mainVideo);
+    }
+
+    function turnScreenOff() {
+      isScreenOn = false;
+      blackout.classList.remove("hide");
+
+      // 如果你想“没人看时暂停”，取消下一行注释：
+      // mainVideo.pause();
+
+      // 目前保持后台继续播放，更符合“持续播放，只是没人看黑屏”。
+      safePlay(mainVideo);
+    }
+
+    async function safePlay(video) {
+      try {
+        await video.play();
+      } catch (error) {
+        // 某些浏览器会阻止自动播放，用户点击启动后通常就没问题。
+        console.warn("video play failed:", error);
+      }
+    }
+
+    function updateDebug(hasValidFace, result) {
+      if (!DEBUG) return;
+
+      const faceCount = result?.detections?.length || 0;
+
+      statusEl.innerText =
+        `screen=${screenId}\n` +
+        `video=${videoSrc}\n` +
+        `faces=${faceCount}\n` +
+        `valid=${hasValidFace}\n` +
+        `screenOn=${isScreenOn}\n` +
+        `camera=${cameraPreview.videoWidth}x${cameraPreview.videoHeight}`;
+    }
+
+    /*
+      =========================
+      防止手机息屏的小技巧
+      =========================
+    */
+
+    let wakeLock = null;
+
+    async function requestWakeLock() {
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLock = await navigator.wakeLock.request("screen");
+        }
+      } catch (error) {
+        console.warn("Wake Lock not available:", error);
+      }
+    }
+
+    document.addEventListener("visibilitychange", async () => {
+      if (document.visibilityState === "visible") {
+        await requestWakeLock();
+        safePlay(mainVideo);
+        safePlay(cameraPreview);
+      }
+    });
+
+    startButton.addEventListener("click", requestWakeLock);
+  </script>
+</body>
+</html>
