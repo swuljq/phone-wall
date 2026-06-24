@@ -35,12 +35,6 @@
       overflow: hidden;
     }
 
-    /*
-      视频层：
-      默认隐藏。
-      检测到人脸后才 visibility: visible + opacity: 1。
-      这样可以解决部分手机浏览器里 video 盖住黑屏遮罩的问题。
-    */
     #mainVideo {
       position: fixed;
       inset: 0;
@@ -51,13 +45,9 @@
       z-index: 1;
       opacity: 0;
       visibility: hidden;
+      display: none;
     }
 
-    /*
-      黑屏层：
-      始终在视频上方。
-      但为了手机端稳定，黑屏时也会同时隐藏 video。
-    */
     #blackout {
       position: fixed;
       inset: 0;
@@ -72,11 +62,6 @@
       opacity: 0;
     }
 
-    /*
-      右下角摄像头预览。
-      调试时保留，方便确认前置摄像头有没有真的被遮住。
-      正式展示时可以把 opacity 改成 0。
-    */
     #cameraPreview {
       position: fixed;
       right: 10px;
@@ -92,11 +77,6 @@
       background: black;
     }
 
-    /*
-      左上角状态文字。
-      现在永远显示，方便你在手机上排查。
-      正式展示时可以 display: none。
-    */
     #status {
       position: fixed;
       left: 12px;
@@ -150,7 +130,8 @@
     }
 
     /*
-      正式展示时，可以取消下面两段注释：
+      正式展示时，如果想隐藏调试文字和摄像头预览，
+      把下面两段取消注释：
 
       #status {
         display: none;
@@ -171,7 +152,7 @@
       webkit-playsinline
       muted
       loop
-      preload="auto"
+      preload="metadata"
     ></video>
 
     <div id="blackout"></div>
@@ -191,7 +172,7 @@
         <button id="startButton">点击启动</button>
         <div id="startHint">
           启动后请允许使用摄像头。<br />
-          检测到人脸时全屏播放视频；检测不到时黑屏并暂停。
+          检测到人脸时播放；检测不到时彻底黑屏。
         </div>
       </div>
     </div>
@@ -209,26 +190,14 @@
       =========================
     */
 
-    // 检测间隔。越小越灵敏，但越耗电。
     const DETECT_INTERVAL_MS = 180;
 
-    // 检测到人脸后，持续多少毫秒才点亮。
     const FACE_ON_DELAY_MS = 350;
-
-    // 检测不到人脸后，延迟多少毫秒黑屏。
     const FACE_OFF_DELAY_MS = 800;
 
-    // 人脸置信度阈值。
-    // 如果一直误判有人，把它调高，例如 0.75。
-    // 如果太难触发，把它调低，例如 0.55。
     const MIN_SCORE = 0.68;
-
-    // 人脸面积占摄像头画面的最小比例。
-    // 越大，要求人脸越近。
     const MIN_FACE_AREA_RATIO = 0.05;
 
-    // 人脸中心必须靠近画面中间。
-    // 越小越严格。
     const CENTER_TOLERANCE_X = 0.3;
     const CENTER_TOLERANCE_Y = 0.35;
 
@@ -249,7 +218,7 @@
 
     /*
       =========================
-      根据 screen 参数选择视频
+      视频路径
       =========================
     */
 
@@ -261,11 +230,17 @@
     // ?screen=2 -> videos/2.mp4
     // ?screen=3 -> videos/3.mp4
     //
-    // 也可以直接指定：
+    // 也可以：
     // ?video=videos/test.mp4
     const videoSrc = params.get("video") || `videos/${screenId}.mp4`;
 
-    mainVideo.src = videoSrc;
+    // 手机稳定版：
+    // 一开始不要给 video 设置 src。
+    // 检测到人脸时再设置 src。
+    let savedVideoTime = 0;
+
+    mainVideo.removeAttribute("src");
+    mainVideo.load();
 
     /*
       =========================
@@ -301,8 +276,8 @@
       try {
         await enterFullscreen();
 
-        setStatus("正在加载视频...");
-        await prepareVideo();
+        setStatus("正在准备视频...");
+        prepareVideoElement();
 
         setStatus("正在打开前置摄像头...");
         await startCamera();
@@ -312,7 +287,6 @@
 
         startLayer.style.display = "none";
 
-        // 初始状态：黑屏 + 视频隐藏 + 视频暂停
         turnScreenOff();
 
         setStatus("启动完成，开始检测人脸");
@@ -334,31 +308,24 @@
       }
     });
 
-    async function prepareVideo() {
+    function prepareVideoElement() {
       mainVideo.muted = true;
       mainVideo.loop = true;
       mainVideo.playsInline = true;
+
+      mainVideo.setAttribute("muted", "");
       mainVideo.setAttribute("playsinline", "");
       mainVideo.setAttribute("webkit-playsinline", "");
+      mainVideo.setAttribute("preload", "metadata");
 
-      await new Promise((resolve) => {
-        if (mainVideo.readyState >= 1) {
-          resolve();
-          return;
-        }
-
-        mainVideo.onloadedmetadata = () => resolve();
-
-        // 防止某些视频 metadata 加载慢导致卡住
-        setTimeout(resolve, 2000);
-      });
-
-      // 不在这里播放，等检测到人脸再播放。
       mainVideo.pause();
+      mainVideo.removeAttribute("src");
+      mainVideo.load();
 
-      // 强制初始隐藏
       mainVideo.style.opacity = "0";
       mainVideo.style.visibility = "hidden";
+      mainVideo.style.display = "none";
+
       blackout.classList.remove("hide");
     }
 
@@ -503,34 +470,64 @@
 
     /*
       =========================
-      手机端稳定版显示 / 隐藏视频
+      关键：手机稳定版开关视频
       =========================
     */
 
     function turnScreenOn() {
       isScreenOn = true;
 
-      // 先显示视频元素
+      blackout.classList.add("hide");
+
+      mainVideo.style.display = "block";
       mainVideo.style.visibility = "visible";
       mainVideo.style.opacity = "1";
 
-      // 再移除黑屏
-      blackout.classList.add("hide");
+      const hasSrc = mainVideo.getAttribute("src");
 
-      safePlay(mainVideo);
+      if (!hasSrc) {
+        mainVideo.src = videoSrc;
+        mainVideo.load();
+
+        mainVideo.onloadedmetadata = () => {
+          try {
+            if (
+              savedVideoTime > 0 &&
+              mainVideo.duration &&
+              savedVideoTime < mainVideo.duration
+            ) {
+              mainVideo.currentTime = savedVideoTime;
+            }
+          } catch (e) {}
+
+          safePlay(mainVideo);
+        };
+
+        mainVideo.oncanplay = () => {
+          safePlay(mainVideo);
+        };
+      } else {
+        safePlay(mainVideo);
+      }
     }
 
     function turnScreenOff() {
       isScreenOn = false;
 
-      // 先暂停
+      try {
+        savedVideoTime = mainVideo.currentTime || savedVideoTime || 0;
+      } catch (e) {}
+
       mainVideo.pause();
 
-      // 再隐藏视频元素
+      // 关键：清空 src，彻底阻止手机系统视频层继续显示
+      mainVideo.removeAttribute("src");
+      mainVideo.load();
+
       mainVideo.style.opacity = "0";
       mainVideo.style.visibility = "hidden";
+      mainVideo.style.display = "none";
 
-      // 最后显示黑屏层
       blackout.classList.remove("hide");
     }
 
@@ -574,6 +571,8 @@
       const cameraSize =
         `${cameraPreview.videoWidth || 0}x${cameraPreview.videoHeight || 0}`;
 
+      const hasVideoSrc = !!mainVideo.getAttribute("src");
+
       statusEl.innerText =
         `screen=${screenId}\n` +
         `video=${videoSrc}\n` +
@@ -581,7 +580,8 @@
         `faces=${lastFaceCount}\n` +
         `valid=${lastValidFace}\n` +
         `screenOn=${isScreenOn}\n` +
-        `videoHidden=${mainVideo.style.visibility === "hidden"}\n` +
+        `hasVideoSrc=${hasVideoSrc}\n` +
+        `videoDisplay=${mainVideo.style.display}\n` +
         `videoPaused=${mainVideo.paused}\n` +
         `score=${lastScore.toFixed(2)}\n` +
         `area=${lastAreaRatio.toFixed(3)}\n` +
@@ -611,7 +611,7 @@
         await requestWakeLock();
         safePlay(cameraPreview);
 
-        if (isScreenOn) {
+        if (isScreenOn && mainVideo.getAttribute("src")) {
           safePlay(mainVideo);
         }
       }
