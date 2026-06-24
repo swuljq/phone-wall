@@ -62,6 +62,11 @@
       opacity: 0;
     }
 
+    /*
+      摄像头预览：
+      默认隐藏。
+      只有网址加 debug=1 时显示。
+    */
     #cameraPreview {
       position: fixed;
       right: 10px;
@@ -70,13 +75,23 @@
       height: 160px;
       object-fit: cover;
       z-index: 99998;
-      opacity: 0.45;
+      opacity: 0;
       transform: scaleX(-1);
       pointer-events: none;
-      border: 1px solid rgba(255, 255, 255, 0.5);
+      border: none;
       background: black;
     }
 
+    body.debug #cameraPreview {
+      opacity: 0.45;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+    }
+
+    /*
+      状态文字：
+      默认隐藏。
+      只有网址加 debug=1 时显示。
+    */
     #status {
       position: fixed;
       left: 12px;
@@ -89,10 +104,14 @@
       padding: 8px 10px;
       border-radius: 6px;
       pointer-events: none;
-      display: block;
+      display: none;
       white-space: pre-line;
       max-width: calc(100vw - 24px);
       box-sizing: border-box;
+    }
+
+    body.debug #status {
+      display: block;
     }
 
     #startLayer {
@@ -128,19 +147,6 @@
       font-size: 13px;
       line-height: 1.5;
     }
-
-    /*
-      正式展示时，如果想隐藏调试文字和摄像头预览，
-      把下面两段取消注释：
-
-      #status {
-        display: none;
-      }
-
-      #cameraPreview {
-        opacity: 0;
-      }
-    */
   </style>
 </head>
 
@@ -172,7 +178,7 @@
         <button id="startButton">点击启动</button>
         <div id="startHint">
           启动后请允许使用摄像头。<br />
-          检测到人脸时播放；检测不到时彻底黑屏。
+          检测到人脸时播放；检测不到时黑屏。
         </div>
       </div>
     </div>
@@ -183,6 +189,35 @@
       FaceDetector,
       FilesetResolver
     } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+    /*
+      =========================
+      网址参数
+      =========================
+    */
+
+    const params = new URLSearchParams(location.search);
+    const screenId = params.get("screen") || "1";
+    const debugMode = params.get("debug") === "1";
+
+    if (debugMode) {
+      document.body.classList.add("debug");
+    }
+
+    /*
+      =========================
+      视频路径
+      =========================
+    */
+
+    // 默认：
+    // ?screen=1 -> videos/1.mp4
+    // ?screen=2 -> videos/2.mp4
+    // ?screen=3 -> videos/3.mp4
+    //
+    // 也可以：
+    // ?video=videos/test.mp4
+    const videoSrc = params.get("video") || `videos/${screenId}.mp4`;
 
     /*
       =========================
@@ -214,29 +249,13 @@
     const startButton = document.getElementById("startButton");
     const statusEl = document.getElementById("status");
 
-    statusEl.innerText = "JS 已加载，等待点击启动";
+    setStatus("JS 已加载，等待点击启动");
 
     /*
-      =========================
-      视频路径
-      =========================
+      手机稳定版：
+      一开始不要给 video 设置 src。
+      检测到人脸时再设置 src。
     */
-
-    const params = new URLSearchParams(location.search);
-    const screenId = params.get("screen") || "1";
-
-    // 默认：
-    // ?screen=1 -> videos/1.mp4
-    // ?screen=2 -> videos/2.mp4
-    // ?screen=3 -> videos/3.mp4
-    //
-    // 也可以：
-    // ?video=videos/test.mp4
-    const videoSrc = params.get("video") || `videos/${screenId}.mp4`;
-
-    // 手机稳定版：
-    // 一开始不要给 video 设置 src。
-    // 检测到人脸时再设置 src。
     let savedVideoTime = 0;
 
     mainVideo.removeAttribute("src");
@@ -393,7 +412,10 @@
         const hasValidFace = checkHasValidFace(result);
 
         updateScreenState(hasValidFace, now);
-        updateDebugStatus();
+
+        if (debugMode) {
+          updateDebugStatus();
+        }
       }
 
       requestAnimationFrame(detectLoop);
@@ -470,7 +492,7 @@
 
     /*
       =========================
-      关键：手机稳定版开关视频
+      手机稳定版开关视频
       =========================
     */
 
@@ -520,7 +542,7 @@
 
       mainVideo.pause();
 
-      // 关键：清空 src，彻底阻止手机系统视频层继续显示
+      // 关键：清空 src，防止手机系统视频层继续显示
       mainVideo.removeAttribute("src");
       mainVideo.load();
 
@@ -560,6 +582,8 @@
     }
 
     function setStatus(text) {
+      if (!debugMode) return;
+
       statusEl.innerText =
         text +
         "\n\n" +
