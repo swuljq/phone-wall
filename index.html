@@ -35,6 +35,12 @@
       overflow: hidden;
     }
 
+    /*
+      视频层：
+      默认隐藏。
+      检测到人脸后才 visibility: visible + opacity: 1。
+      这样可以解决部分手机浏览器里 video 盖住黑屏遮罩的问题。
+    */
     #mainVideo {
       position: fixed;
       inset: 0;
@@ -43,22 +49,34 @@
       object-fit: cover;
       background: black;
       z-index: 1;
+      opacity: 0;
+      visibility: hidden;
     }
 
+    /*
+      黑屏层：
+      始终在视频上方。
+      但为了手机端稳定，黑屏时也会同时隐藏 video。
+    */
     #blackout {
       position: fixed;
       inset: 0;
       background: black;
       z-index: 10;
       opacity: 1;
-      transition: opacity 0.25s linear;
       pointer-events: none;
+      transition: opacity 0.2s linear;
     }
 
     #blackout.hide {
       opacity: 0;
     }
 
+    /*
+      右下角摄像头预览。
+      调试时保留，方便确认前置摄像头有没有真的被遮住。
+      正式展示时可以把 opacity 改成 0。
+    */
     #cameraPreview {
       position: fixed;
       right: 10px;
@@ -74,6 +92,11 @@
       background: black;
     }
 
+    /*
+      左上角状态文字。
+      现在永远显示，方便你在手机上排查。
+      正式展示时可以 display: none。
+    */
     #status {
       position: fixed;
       left: 12px;
@@ -127,18 +150,15 @@
     }
 
     /*
-      正式展示时，如果你想隐藏调试文字和摄像头预览，
-      把下面两行取消注释即可。
-    */
+      正式展示时，可以取消下面两段注释：
 
-    /*
-    #status {
-      display: none;
-    }
+      #status {
+        display: none;
+      }
 
-    #cameraPreview {
-      opacity: 0;
-    }
+      #cameraPreview {
+        opacity: 0;
+      }
     */
   </style>
 </head>
@@ -171,7 +191,7 @@
         <button id="startButton">点击启动</button>
         <div id="startHint">
           启动后请允许使用摄像头。<br />
-          检测到人脸时播放视频；检测不到时黑屏。
+          检测到人脸时全屏播放视频；检测不到时黑屏并暂停。
         </div>
       </div>
     </div>
@@ -199,14 +219,15 @@
     const FACE_OFF_DELAY_MS = 800;
 
     // 人脸置信度阈值。
+    // 如果一直误判有人，把它调高，例如 0.75。
+    // 如果太难触发，把它调低，例如 0.55。
     const MIN_SCORE = 0.68;
 
     // 人脸面积占摄像头画面的最小比例。
-    // 如果你希望人离得近才触发，就调大，比如 0.08。
-    // 如果太难触发，就调小，比如 0.03。
+    // 越大，要求人脸越近。
     const MIN_FACE_AREA_RATIO = 0.05;
 
-    // 人脸中心需要在画面中间范围内。
+    // 人脸中心必须靠近画面中间。
     // 越小越严格。
     const CENTER_TOLERANCE_X = 0.3;
     const CENTER_TOLERANCE_Y = 0.35;
@@ -235,13 +256,13 @@
     const params = new URLSearchParams(location.search);
     const screenId = params.get("screen") || "1";
 
-    // 默认视频路径：
-    // screen=1 -> videos/1.mp4
-    // screen=2 -> videos/2.mp4
-    // screen=3 -> videos/3.mp4
+    // 默认：
+    // ?screen=1 -> videos/1.mp4
+    // ?screen=2 -> videos/2.mp4
+    // ?screen=3 -> videos/3.mp4
     //
-    // 也可以直接指定视频：
-    // index.html?video=videos/test.mp4
+    // 也可以直接指定：
+    // ?video=videos/test.mp4
     const videoSrc = params.get("video") || `videos/${screenId}.mp4`;
 
     mainVideo.src = videoSrc;
@@ -255,6 +276,7 @@
     let faceDetector = null;
     let cameraReady = false;
     let isScreenOn = false;
+    let hasStartedLoop = false;
 
     let firstFaceSeenAt = 0;
     let lastFaceSeenAt = 0;
@@ -290,12 +312,15 @@
 
         startLayer.style.display = "none";
 
-        // 初始状态：黑屏 + 视频暂停
+        // 初始状态：黑屏 + 视频隐藏 + 视频暂停
         turnScreenOff();
 
         setStatus("启动完成，开始检测人脸");
 
-        detectLoop();
+        if (!hasStartedLoop) {
+          hasStartedLoop = true;
+          detectLoop();
+        }
       } catch (error) {
         console.error(error);
 
@@ -313,6 +338,8 @@
       mainVideo.muted = true;
       mainVideo.loop = true;
       mainVideo.playsInline = true;
+      mainVideo.setAttribute("playsinline", "");
+      mainVideo.setAttribute("webkit-playsinline", "");
 
       await new Promise((resolve) => {
         if (mainVideo.readyState >= 1) {
@@ -322,12 +349,17 @@
 
         mainVideo.onloadedmetadata = () => resolve();
 
-        // 防止某些视频 metadata 很慢导致一直卡住
+        // 防止某些视频 metadata 加载慢导致卡住
         setTimeout(resolve, 2000);
       });
 
       // 不在这里播放，等检测到人脸再播放。
       mainVideo.pause();
+
+      // 强制初始隐藏
+      mainVideo.style.opacity = "0";
+      mainVideo.style.visibility = "hidden";
+      blackout.classList.remove("hide");
     }
 
     async function startCamera() {
@@ -469,16 +501,37 @@
       }
     }
 
+    /*
+      =========================
+      手机端稳定版显示 / 隐藏视频
+      =========================
+    */
+
     function turnScreenOn() {
       isScreenOn = true;
+
+      // 先显示视频元素
+      mainVideo.style.visibility = "visible";
+      mainVideo.style.opacity = "1";
+
+      // 再移除黑屏
       blackout.classList.add("hide");
+
       safePlay(mainVideo);
     }
 
     function turnScreenOff() {
       isScreenOn = false;
-      blackout.classList.remove("hide");
+
+      // 先暂停
       mainVideo.pause();
+
+      // 再隐藏视频元素
+      mainVideo.style.opacity = "0";
+      mainVideo.style.visibility = "hidden";
+
+      // 最后显示黑屏层
+      blackout.classList.remove("hide");
     }
 
     /*
@@ -528,6 +581,8 @@
         `faces=${lastFaceCount}\n` +
         `valid=${lastValidFace}\n` +
         `screenOn=${isScreenOn}\n` +
+        `videoHidden=${mainVideo.style.visibility === "hidden"}\n` +
+        `videoPaused=${mainVideo.paused}\n` +
         `score=${lastScore.toFixed(2)}\n` +
         `area=${lastAreaRatio.toFixed(3)}\n` +
         `centered=${lastCentered}`;
