@@ -498,24 +498,20 @@
 
     function turnScreenOn() {
       isScreenOn = true;
+      mainVideo.style.display="block";
+      mainVideo.style.visibility="visible";
+      mainVideo.style.opacity="1";
 
-       isScreenOn=true;
+      blackout.classList.add("hide");
 
-  mainVideo.style.display="block";
-  mainVideo.style.visibility="visible";
-  mainVideo.style.opacity="1";
-
-  blackout.classList.add("hide");
-
-  safePlay(mainVideo);
+      safePlay(mainVideo);
     }
 
     function turnScreenOff() {
       isScreenOn = false;
+      mainVideo.style.opacity="0";
 
-     mainVideo.style.opacity="0";
-
-     blackout.classList.remove("hide");
+      blackout.classList.remove("hide");
     }
 
     /*
