@@ -43,8 +43,8 @@
       object-fit: cover;
       background: black;
       z-index: 1;
-      opacity: 0;
-      visibility: hidden;
+      opacity: 1;
+      visibility: visible;
       display: block;
       transition: opacity 1.5s ease-in-out;
     }
@@ -229,7 +229,7 @@
     const DETECT_INTERVAL_MS = 180;
 
     const FACE_ON_DELAY_MS = 350;
-    const FACE_OFF_DELAY_MS = 1500;
+    const FACE_OFF_DELAY_MS = 800;
 
     const MIN_SCORE = 0.68;
     const MIN_FACE_AREA_RATIO = 0.015;
@@ -343,8 +343,8 @@
       mainVideo.load();
 
       mainVideo.style.opacity = "0";
-      mainVideo.style.visibility = "hidden";
-      mainVideo.style.display = "none";
+      mainVideo.style.visibility = "visible";
+      mainVideo.style.display = "block";
 
       blackout.classList.remove("hide");
     }
@@ -501,14 +501,11 @@
 
       isScreenOn = true;
 
-      // 移除黑屏
       blackout.classList.add("hide");
 
-      // 显示视频
       mainVideo.style.display = "block";
       mainVideo.style.visibility = "visible";
 
-      // 视频渐渐显示
       setTimeout(() => {
         mainVideo.style.opacity = "1";
       }, 50);
@@ -520,9 +517,13 @@
         mainVideo.load();
 
         mainVideo.onloadedmetadata = () => {
+          if (savedVideoTime > 0 && savedVideoTime < mainVideo.duration) {
+            mainVideo.currentTime = savedVideoTime;
+          }
           safePlay(mainVideo);
         };
       } else {
+        mainVideo.currentTime = savedVideoTime;
         safePlay(mainVideo);
       }
     }
@@ -531,17 +532,23 @@
 
       isScreenOn = false;
 
-      // 视频渐渐淡出
+      // 保存播放位置
+      try {
+        savedVideoTime = mainVideo.currentTime;
+      } catch (e) {}
+
+      // 暂停，但是不删除 src
+      mainVideo.pause();
+
+      // 视频渐渐变黑
       mainVideo.style.opacity = "0";
 
-      // 保持原来的快速黑屏触发逻辑
+      // 渐变完成后显示黑屏
       setTimeout(() => {
-
         if (!isScreenOn) {
           blackout.classList.remove("hide");
         }
-
-      }, 200);
+      }, 1500);
     }
 
     /*
