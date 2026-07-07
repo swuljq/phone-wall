@@ -43,9 +43,9 @@
       object-fit: cover;
       background: black;
       z-index: 1;
-      opacity: 1;
-      visibility: visible;
-      display: block;
+      opacity: 0;
+      visibility: hidden;
+      display: none;
     }
 
     #blackout {
@@ -53,13 +53,9 @@
       inset: 0;
       background: black;
       z-index: 10;
-      opacity: 0;
+      opacity: 1;
       pointer-events: none;
       transition: opacity 1.5s ease-in-out;
-    }
-
-    #blackout.show {
-      opacity: 1;
     }
 
     #blackout.hide {
@@ -232,7 +228,7 @@
     const DETECT_INTERVAL_MS = 180;
 
     const FACE_ON_DELAY_MS = 350;
-    const FACE_OFF_DELAY_MS = 800;
+    const FACE_OFF_DELAY_MS = 1500;
 
     const MIN_SCORE = 0.68;
     const MIN_FACE_AREA_RATIO = 0.015;
@@ -501,14 +497,16 @@
     */
 
     function turnScreenOn() {
-
       isScreenOn = true;
-
-      // 黑色遮罩渐渐消失
-      blackout.classList.remove("show");
 
       mainVideo.style.display = "block";
       mainVideo.style.visibility = "visible";
+
+      setTimeout(() => {
+        mainVideo.style.opacity = "1";
+      }, 50);
+
+      blackout.classList.add("hide");
 
       const hasSrc = mainVideo.getAttribute("src");
 
@@ -517,33 +515,28 @@
         mainVideo.load();
 
         mainVideo.onloadedmetadata = () => {
-          if (savedVideoTime > 0 && savedVideoTime < mainVideo.duration) {
-            mainVideo.currentTime = savedVideoTime;
-          }
           safePlay(mainVideo);
         };
       } else {
-        if (savedVideoTime > 0) {
-          mainVideo.currentTime = savedVideoTime;
-        }
         safePlay(mainVideo);
       }
     }
 
     function turnScreenOff() {
-
       isScreenOn = false;
 
-      // 保存播放位置
-      try {
-        savedVideoTime = mainVideo.currentTime;
-      } catch (e) {}
+      // 不暂停视频，不删除 src
+      // 视频继续播放，只隐藏画面
+      mainVideo.style.opacity = "0";
 
-      // 暂停视频，不删除 src
-      mainVideo.pause();
+      blackout.classList.remove("hide");
 
-      // 使用黑色遮罩渐变，而不是控制 video opacity
-      blackout.classList.add("show");
+      setTimeout(() => {
+        if (!isScreenOn) {
+          mainVideo.style.visibility = "hidden";
+          mainVideo.style.display = "none";
+        }
+      }, 1500);
     }
 
     /*
