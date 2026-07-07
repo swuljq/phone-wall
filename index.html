@@ -45,7 +45,8 @@
       z-index: 1;
       opacity: 0;
       visibility: hidden;
-      display: none;
+      display: block;
+      transition: opacity 1.5s ease-in-out;
     }
 
     #blackout {
@@ -55,7 +56,7 @@
       z-index: 10;
       opacity: 1;
       pointer-events: none;
-      transition: opacity 1.5s ease-in-out;
+      transition: opacity 0.2s linear;
     }
 
     #blackout.hide {
@@ -497,16 +498,20 @@
     */
 
     function turnScreenOn() {
+
       isScreenOn = true;
 
+      // 移除黑屏
+      blackout.classList.add("hide");
+
+      // 显示视频
       mainVideo.style.display = "block";
       mainVideo.style.visibility = "visible";
 
+      // 视频渐渐显示
       setTimeout(() => {
         mainVideo.style.opacity = "1";
       }, 50);
-
-      blackout.classList.add("hide");
 
       const hasSrc = mainVideo.getAttribute("src");
 
@@ -523,20 +528,20 @@
     }
 
     function turnScreenOff() {
+
       isScreenOn = false;
 
-      // 不暂停视频，不删除 src
-      // 视频继续播放，只隐藏画面
+      // 视频渐渐淡出
       mainVideo.style.opacity = "0";
 
-      blackout.classList.remove("hide");
-
+      // 保持原来的快速黑屏触发逻辑
       setTimeout(() => {
+
         if (!isScreenOn) {
-          mainVideo.style.visibility = "hidden";
-          mainVideo.style.display = "none";
+          blackout.classList.remove("hide");
         }
-      }, 1500);
+
+      }, 200);
     }
 
     /*
