@@ -498,18 +498,57 @@
 
     function turnScreenOn() {
       isScreenOn = true;
-      mainVideo.style.display="block";
-      mainVideo.style.visibility="visible";
-      mainVideo.style.opacity="1";
 
       blackout.classList.add("hide");
 
-      safePlay(mainVideo);
+      mainVideo.style.display = "block";
+      mainVideo.style.visibility = "visible";
+      mainVideo.style.opacity = "1";
+
+      const hasSrc = mainVideo.getAttribute("src");
+
+      if (!hasSrc) {
+        mainVideo.src = videoSrc;
+        mainVideo.load();
+
+        mainVideo.onloadedmetadata = () => {
+          try {
+            if (
+              savedVideoTime > 0 &&
+              mainVideo.duration &&
+              savedVideoTime < mainVideo.duration
+            ) {
+              mainVideo.currentTime = savedVideoTime;
+            }
+          } catch (e) {}
+
+          safePlay(mainVideo);
+        };
+
+        mainVideo.oncanplay = () => {
+          safePlay(mainVideo);
+        };
+      } else {
+        safePlay(mainVideo);
+      }
     }
 
     function turnScreenOff() {
       isScreenOn = false;
-      mainVideo.style.opacity="0";
+
+      try {
+        savedVideoTime = mainVideo.currentTime || savedVideoTime || 0;
+      } catch (e) {}
+
+      mainVideo.pause();
+
+      // 关键：清空 src，防止手机系统视频层继续显示
+      mainVideo.removeAttribute("src");
+      mainVideo.load();
+
+      mainVideo.style.opacity = "0";
+      mainVideo.style.visibility = "hidden";
+      mainVideo.style.display = "none";
 
       blackout.classList.remove("hide");
     }
