@@ -532,23 +532,16 @@
 
       isScreenOn = false;
 
-      // 保存播放位置
+      // 保存当前播放位置
       try {
         savedVideoTime = mainVideo.currentTime;
       } catch (e) {}
 
-      // 暂停，但是不删除 src
+      // 暂停视频，但不删除 src
       mainVideo.pause();
 
-      // 视频渐渐变黑
+      // 只通过 opacity 做渐变，不使用 blackout 覆盖
       mainVideo.style.opacity = "0";
-
-      // 渐变完成后显示黑屏
-      setTimeout(() => {
-        if (!isScreenOn) {
-          blackout.classList.remove("hide");
-        }
-      }, 1500);
     }
 
     /*
