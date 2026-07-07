@@ -46,7 +46,6 @@
       opacity: 1;
       visibility: visible;
       display: block;
-      transition: opacity 1.5s ease-in-out;
     }
 
     #blackout {
@@ -54,9 +53,13 @@
       inset: 0;
       background: black;
       z-index: 10;
-      opacity: 1;
+      opacity: 0;
       pointer-events: none;
-      transition: opacity 0.2s linear;
+      transition: opacity 1.5s ease-in-out;
+    }
+
+    #blackout.show {
+      opacity: 1;
     }
 
     #blackout.hide {
@@ -343,8 +346,8 @@
       mainVideo.load();
 
       mainVideo.style.opacity = "0";
-      mainVideo.style.visibility = "visible";
-      mainVideo.style.display = "block";
+      mainVideo.style.visibility = "hidden";
+      mainVideo.style.display = "none";
 
       blackout.classList.remove("hide");
     }
@@ -501,14 +504,11 @@
 
       isScreenOn = true;
 
-      blackout.classList.add("hide");
+      // 黑色遮罩渐渐消失
+      blackout.classList.remove("show");
 
       mainVideo.style.display = "block";
       mainVideo.style.visibility = "visible";
-
-      setTimeout(() => {
-        mainVideo.style.opacity = "1";
-      }, 50);
 
       const hasSrc = mainVideo.getAttribute("src");
 
@@ -523,7 +523,9 @@
           safePlay(mainVideo);
         };
       } else {
-        mainVideo.currentTime = savedVideoTime;
+        if (savedVideoTime > 0) {
+          mainVideo.currentTime = savedVideoTime;
+        }
         safePlay(mainVideo);
       }
     }
@@ -532,16 +534,16 @@
 
       isScreenOn = false;
 
-      // 保存当前播放位置
+      // 保存播放位置
       try {
         savedVideoTime = mainVideo.currentTime;
       } catch (e) {}
 
-      // 暂停视频，但不删除 src
+      // 暂停视频，不删除 src
       mainVideo.pause();
 
-      // 只通过 opacity 做渐变，不使用 blackout 覆盖
-      mainVideo.style.opacity = "0";
+      // 使用黑色遮罩渐变，而不是控制 video opacity
+      blackout.classList.add("show");
     }
 
     /*
