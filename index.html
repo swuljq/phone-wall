@@ -55,7 +55,7 @@
       z-index: 10;
       opacity: 1;
       pointer-events: none;
-      transition: opacity 1.5s linear;
+      transition: opacity 1.5s ease-in-out;
     }
 
     #blackout.hide {
@@ -228,7 +228,7 @@
     const DETECT_INTERVAL_MS = 180;
 
     const FACE_ON_DELAY_MS = 350;
-    const FACE_OFF_DELAY_MS = 800;
+    const FACE_OFF_DELAY_MS = 1500;
 
     const MIN_SCORE = 0.68;
     const MIN_FACE_AREA_RATIO = 0.015;
@@ -499,11 +499,14 @@
     function turnScreenOn() {
       isScreenOn = true;
 
-      blackout.classList.add("hide");
-
       mainVideo.style.display = "block";
       mainVideo.style.visibility = "visible";
-      mainVideo.style.opacity = "1";
+
+      setTimeout(() => {
+        mainVideo.style.opacity = "1";
+      }, 50);
+
+      blackout.classList.add("hide");
 
       const hasSrc = mainVideo.getAttribute("src");
 
@@ -512,20 +515,6 @@
         mainVideo.load();
 
         mainVideo.onloadedmetadata = () => {
-          try {
-            if (
-              savedVideoTime > 0 &&
-              mainVideo.duration &&
-              savedVideoTime < mainVideo.duration
-            ) {
-              mainVideo.currentTime = savedVideoTime;
-            }
-          } catch (e) {}
-
-          safePlay(mainVideo);
-        };
-
-        mainVideo.oncanplay = () => {
           safePlay(mainVideo);
         };
       } else {
@@ -536,21 +525,18 @@
     function turnScreenOff() {
       isScreenOn = false;
 
-      try {
-        savedVideoTime = mainVideo.currentTime || savedVideoTime || 0;
-      } catch (e) {}
-
-      mainVideo.pause();
-
-      // 关键：清空 src，防止手机系统视频层继续显示
-      mainVideo.removeAttribute("src");
-      mainVideo.load();
-
+      // 不暂停视频，不删除 src
+      // 视频继续播放，只隐藏画面
       mainVideo.style.opacity = "0";
-      mainVideo.style.visibility = "hidden";
-      mainVideo.style.display = "none";
 
       blackout.classList.remove("hide");
+
+      setTimeout(() => {
+        if (!isScreenOn) {
+          mainVideo.style.visibility = "hidden";
+          mainVideo.style.display = "none";
+        }
+      }, 1500);
     }
 
     /*
