@@ -10,6 +10,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="screen-orientation" content="portrait" />
+  <meta name="x5-orientation" content="portrait" />
+  <meta name="orientation" content="portrait" />
 
   <title>Face Activated Phone Screen</title>
 
@@ -22,6 +25,8 @@
       height: 100%;
       background: black;
       overflow: hidden;
+      position: fixed;
+      inset: 0;
       touch-action: manipulation;
       font-family: Arial, sans-serif;
     }
@@ -37,9 +42,10 @@
 
     #mainVideo {
       position: fixed;
-      inset: 0;
+      top: 0;
+      left: 0;
       width: 100vw;
-      height: 100vh;
+      height: 100dvh;
       object-fit: cover;
       background: black;
       z-index: 1;
@@ -55,6 +61,7 @@
       z-index: 10;
       opacity: 1;
       pointer-events: none;
+      transition: opacity 1.5s ease-in-out;
     }
 
     #blackout.hide {
@@ -155,9 +162,10 @@
       id="mainVideo"
       playsinline
       webkit-playsinline
+      autoplay
       muted
       loop
-      preload="metadata"
+      preload="auto"
     ></video>
 
     <div id="blackout"></div>
@@ -293,6 +301,7 @@
 
       try {
         await enterFullscreen();
+        await lockPortrait();
 
         setStatus("正在准备视频...");
         prepareVideoElement();
@@ -549,6 +558,16 @@
         await video.play();
       } catch (error) {
         console.warn("video play failed:", error);
+      }
+    }
+
+    async function lockPortrait(){
+      try{
+        if(screen.orientation){
+          await screen.orientation.lock("portrait");
+        }
+      }catch(e){
+        console.log("portrait lock not supported");
       }
     }
 
